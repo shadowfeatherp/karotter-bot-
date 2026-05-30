@@ -1,93 +1,100 @@
+API_KEY = "kar_live_-f7WTMjCTIFXd9gABvuPgr9ZFUaeLJ6Y2co0w3kh1oM"
 import requests
 import time
-
-API_KEY = "kar_live_-f7WTMjCTIFXd9gABvuPgr9ZFUaeLJ6Y2co0w3kh1oM"
+import json
+import os
 
 HEADERS = {
     "x-api-key": API_KEY,
     "Content-Type": "application/json"
 }
 
-WORDS = [
-    "うお",
-    "どわー",
-    "きちー",
-    "ええて"
-]
-
 BOT_USERNAME = "cold_laugh"
 
-seen = set()
+WORDS = ["うお", "どわー", "きちー", "ええて"]
+
+DB_FILE = "detected.json"
+
+
+def load_detected():
+    if not os.path.exists(DB_FILE):
+        return set()
+    try:
+        return set(json.load(open(DB_FILE, "r", encoding="utf-8")))
+    except:
+        return set()
+
+
+def save_detected(data):
+    json.dump(list(data), open(DB_FILE, "w", encoding="utf-8"))
+
+
+detected = load_detected()
+
+
+def follow_user(user_id):
+    requests.post(
+        f"https://karotter.com/api/developer/users/{user_id}/follow",
+        headers=HEADERS,
+        timeout=10
+    )
+
+
+def quote(post_id):
+    requests.post(
+        "https://karotter.com/api/developer/posts",
+        headers=HEADERS,
+        json={
+            "content": "冷笑を検知しました！",
+            "quotedPostId": post_id
+        },
+        timeout=10
+    )
 
 
 def get_timeline():
     r = requests.get(
         "https://karotter.com/api/developer/timeline",
         headers=HEADERS,
-        timeout=15
+        timeout=10
     )
-
-    r.raise_for_status()
     return r.json()
-
-
-def create_post(text):
-    r = requests.post(
-        "https://karotter.com/api/developer/posts",
-        headers=HEADERS,
-        json={
-            "content": text
-        },
-        timeout=15
-    )
-
-    print("投稿:", r.status_code)
 
 
 while True:
     try:
         data = get_timeline()
 
-        posts = data.get("posts", [])
+        for post in data.get("posts", []):
 
-        for post in posts:
-
-            post_id = post["id"]
-
-            if post_id in seen:
+            post_id = str(post["id"])
+            if post_id in detected:
                 continue
 
-            seen.add(post_id)
-
             username = post["author"]["username"]
+            user_id = post["author"]["id"]
             content = post.get("content", "")
 
-            # 自分自身の投稿は無視
             if username == BOT_USERNAME:
                 continue
 
-            # 冷笑検知
-            if any(word in content for word in WORDS):
+            # フォローは状態保存しない（その場で判断）
+            try:
+                follow_user(user_id)
+            except:
+                pass
 
-                post_url = (
-                    f"https://karotter.karon.jp/"
-                    f"{username}/status/{post_id}"
-                )
+            if any(w in content for w in WORDS):
 
-                message = (
-                    "冷笑を検知しました！\n\n"
-                    f"{post_url}"
-                )
+                print("検知:", username, post_id)
 
-                create_post(message)
+                quote(post["id"])
 
-                print(
-                    f"検知: @{username} "
-                    f"({post_id})"
-                )
+                detected.add(post_id)
+                save_detected(detected)
 
-        time.sleep(60)
+        time.sleep(30)
 
     except Exception as e:
         print("エラー:", e)
-        time.sleep(60)
+        time.sleep(30)
